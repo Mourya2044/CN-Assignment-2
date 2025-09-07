@@ -36,10 +36,7 @@ def receiver():
                     if not msg:
                         continue
 
-                    try:
-                        # frame_no_str, frame_payload = msg.split(":", 1)
-                        # frame_no = int(frame_no_str)
-                        
+                    try:                        
                         header = msg[:HEADER_SIZE]
                         src = header[:6*8]
                         dest = header[6*8:12*8]
@@ -53,23 +50,24 @@ def receiver():
                             continue
                         
 
-                        time.sleep(random.uniform(1, 6))  # artificial delay
+                        # time.sleep(random.uniform(1, 6))  # artificial delay
 
-                        if frame_no == next_frame:
+                        if frame_no <= next_frame:
                             print(f"Frame received: {frame_no}")
-                            if random.random() < 0.1:
-                                print("Simulated ACK loss")
-                            else:
-                                conn.send(f"ack:{next_frame}\n".encode("utf-8"))
                             next_frame += 1
-                        else:
-                            # duplicate ACK for last in-order frame
-                            if random.random() < 0.1:
+                            if random.random() < 0.5:
                                 print("Simulated ACK loss")
-                            else:
-                                conn.send(f"ack:{next_frame-1}\n".encode("utf-8"))
+                                continue
+                            conn.send(f"ack:{frame_no}\n".encode("utf-8"))
+                        # else:
+                        #     # duplicate ACK for last in-order frame
+                        #     if random.random() < 0.5:
+                        #         print("Simulated ACK loss")
+                        #         continue
+                        #     conn.send(f"ack:{next_frame-1}\n".encode("utf-8"))
 
                     except ValueError:
                         print(f"Corrupted/partial frame ignored: {msg}")
+            print("Transfer complete. Connection closed.")
 
 receiver()

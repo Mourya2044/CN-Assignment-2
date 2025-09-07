@@ -12,6 +12,8 @@ buffer = {}
 next_frame = 0
 recieved_ack = -1
 lock = threading.Lock()
+file_complete = False
+retransmissions = 0
 
 timer_running = False
 timer = None
@@ -38,23 +40,32 @@ def stop_timer():
     timer_running = False
 
 def timeout_handler():
-    global next_frame, recieved_ack
+    global next_frame, recieved_ack, retransmissions
     print("Timeout! Resending frames...")
     with lock:
-        for f in range(recieved_ack+1, next_frame):
-            frame = buffer[f]
-            sock.send(f"{frame}\n".encode("utf-8"))
-            print(f"Resent: {f}")
+        for f in range(recieved_ack, next_frame):
+            if f in buffer:
+                frame = buffer[f]
+                sock.send(f"{frame}\n".encode("utf-8"))
+                retransmissions += 1
+                print(f"Resent: {f}")
+        stop_timer()
     start_timer()
 
 def sender(n):
-    global next_frame, buffer
+    global next_frame, buffer, file_complete, timer_running
     while True:
         with lock:
             if next_frame - recieved_ack < n:
                 
                 # prepping data
                 data = f.read(PAYLOAD_SIZE)
+                if not data:
+                    print("End of file reached")
+                    file_complete = True
+                    return
+                data = data + ('0'*(PAYLOAD_SIZE - len(data)))
+                
                 frame_no = bin(next_frame)[2:]
                 payload = SRC_ADDR + DEST_ADDR + ('0'*(16-len(frame_no)) + frame_no) + data
                 tailer = crc.generate_crc(payload, 'CRC-32')
@@ -62,18 +73,19 @@ def sender(n):
                 frame = payload + ('0'*(TAILER_SIZE - len(tailer)) + tailer)
                 
                 buffer[next_frame] = frame
-                if random.random() < 0.1:
+                if random.random() < 0.5:
                     frame = injecterror.injectodderror(frame)
                 
                 sock.send(f"{frame}\n".encode("utf-8"))
-                print(f"Sent: {next_frame}, len={len(frame)}")
+                
+                print(f"Frame Sent: {next_frame}")
+                next_frame += 1
                 if not timer_running:
                     start_timer()
-                next_frame += 1
-        time.sleep(1)
+        # time.sleep(1)
 
 def acknowledge():
-    global recieved_ack, ack_buffer
+    global recieved_ack, ack_buffer, file_complete
     while True:
         data = sock.recv(1024)
         if not data:
@@ -99,6 +111,8 @@ def acknowledge():
 
                         # stop timer if all outstanding frames acked
                         if recieved_ack == next_frame-1:
+                            if file_complete:
+                                return
                             stop_timer()
                         else:
                             # restart timer for next unacked frame
@@ -112,9 +126,31 @@ def send(n):
     threading.Thread(target=acknowledge, daemon=True).start()
 
 with open('data.txt', 'r') as f, socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-    sock.connect((HOST, PORT))
+    while True:
+        try:
+            print(f"Attempting to connect to {HOST}:{PORT}...")
+            sock.connect((HOST, PORT))
+            break
+        except ConnectionRefusedError:
+            print("Connection refused, retrying in 2 seconds...")
+            time.sleep(2)
     print(f"Connected to {HOST}:{PORT}")
-    send(4)
+    start_time = time.time()
+    send(2)
 
     while True:
+        if file_complete and recieved_ack == next_frame-1:
+            sock.close()
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            f.seek(0, 0)
+            file_size_bits = len(f.read().strip())
+            throughput = file_size_bits / elapsed_time
+            print(f"Total time taken: {elapsed_time:.2f} seconds")
+            print(f"Throughput: {throughput:.2f} bps")
+            print(f"Total frames sent (including retransmissions): {next_frame + retransmissions}")
+            print(f"Total retransmissions: {retransmissions}")
+            print(f"Retransmission Rate: {(retransmissions / (next_frame + retransmissions))*100:.2f}%")
+            print("Transfer complete. Closing program.")
+            break
         time.sleep(1)

@@ -2,7 +2,7 @@ import socket, time, random, crc
 
 HOST = "127.0.0.1"
 PORT = 3000
-LOSS_PROB = 0.2   # 20% chance to drop a received frame or ack
+LOSS_PROB = 0.1
 
 CODEWORD_SIZE = 64*8
 HEADER_SIZE = 12*8 + 16
@@ -38,7 +38,7 @@ def receiver():
                         fno = int(msg[12*8: HEADER_SIZE], 2)
                         payload = msg[HEADER_SIZE: HEADER_SIZE+PAYLOAD_SIZE]
                         tail = msg[CODEWORD_SIZE - TAILER_SIZE:]
-                        time.sleep(1)
+                        # time.sleep(1)
                         
                         check_tail = crc.generate_crc(header + payload, 'CRC-32')
                         if tail != check_tail:
@@ -46,23 +46,19 @@ def receiver():
                             continue
 
                         for no in range(last_recieved+1, fno):
-                            conn.send(f"nak:{no}\n".encode())
-                            print(f"Sent NAK for missing frame {no}")
-                            
-                        # Simulate frame loss
-                        if random.random() < LOSS_PROB:
-                            print(f"Simulated frame loss: frame {fno} dropped")
-                            continue
+                            if no not in buffer:
+                                conn.send(f"nak:{no}\n".encode())
+                                print(f"Sent NAK for missing frame {no}")
 
                         if fno not in buffer:
                             buffer[fno] = payload
                             print(f"Frame {fno} buffered")
+                            last_recieved = fno
 
                             # Simulate ACK loss
                             if random.random() < LOSS_PROB:
                                 print(f"Simulated ACK loss: ack {fno} not sent")
                             else:
-                                last_recieved = fno
                                 conn.send(f"ack:{fno}\n".encode())
 
                             # deliver in-order frames
@@ -70,6 +66,9 @@ def receiver():
                                 print(f"Delivered in order: {expected}")
                                 buffer.pop(expected)
                                 expected += 1
+                        elif fno < expected:
+                            conn.send(f"ack:{fno}\n".encode())
+                            print(f"Re-acknowledged duplicate frame {fno}")
                     except ValueError:
                         print(f"Corrupted frame ignored: {msg}")
 
