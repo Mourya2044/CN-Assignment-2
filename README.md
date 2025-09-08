@@ -3,9 +3,7 @@
 
 **Title**
 
-*   **Name:** [Your Name]
-*   **Class:** [Your Class]
-*   **Group:** [Your Group]
+*   **Name:** Mourya Saha
 *   **Assignment Number:** 2
 *   **Problem Statement:** Implementation and analysis of reliable data transfer protocols (Go-Back-N/Stop-and-Wait and Selective Repeat) and error detection using CRC.
 *   **Date:** 2025-09-07
